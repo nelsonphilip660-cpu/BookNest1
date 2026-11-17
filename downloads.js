@@ -58,6 +58,7 @@ let currentAudioBook = null;
 let currentAudioPageTexts = [];
 let speechChunks = [];
 let speechChunkIndex = 0;
+let speechSessionId = 0;
 let pdfjsLibraryPromise = null;
 const supportsSpeech = "speechSynthesis" in window && "SpeechSynthesisUtterance" in window;
 try {
@@ -86,7 +87,7 @@ async function loadPdfJs() {
         if (!workerResponse) {
             workerResponse = await fetch(workerUrl);
             if (!workerResponse.ok) throw new Error("The offline PDF reader could not load.");
-            const cache = await caches.open("booknest-shell-v10");
+            const cache = await caches.open("booknest-shell-v11");
             await cache.put(workerUrl, workerResponse.clone());
         }
         const workerCode = await workerResponse.text();
@@ -469,30 +470,6 @@ function setAudioPlaybackControls(isActive) {
     stopAudioReadingButton.disabled = !isActive;
 }
 
-function speakNextChunk() {
-    if (!supportsSpeech || speechChunkIndex >= speechChunks.length) {
-        audioReaderStatus.textContent = "Finished reading this page.";
-        setAudioPlaybackControls(false);
-        return;
-    }
-    const utterance = new SpeechSynthesisUtterance(speechChunks[speechChunkIndex]);
-    utterance.rate = Number(audioRate.value) || 1;
-    const voiceIndex = Number(audioVoiceSelect.value);
-    const voices = window.speechSynthesis.getVoices();
-    if (audioVoiceSelect.value && voices[voiceIndex]) utterance.voice = voices[voiceIndex];
-    utterance.onend = () => {
-        speechChunkIndex++;
-        speakNextChunk();
-    };
-    utterance.onerror = event => {
-        if (event.error === "canceled" || event.error === "interrupted") return;
-        audioReaderStatus.textContent = "Audio reading stopped. Try another browser voice or press Listen again.";
-        setAudioPlaybackControls(false);
-    };
-    window.speechSynthesis.speak(utterance);
-    audioReaderStatus.textContent = `Reading page ${currentPdfPageNumber}, section ${speechChunkIndex + 1} of ${speechChunks.length}.`;
-}
-
 function startAudioPlayback(pageText = null) {
     const selectedPageText = pageText ?? currentAudioPageTexts[currentPdfPageNumber - 1] ?? currentAudioBook?.textContent;
     if (!selectedPageText) {
@@ -503,7 +480,9 @@ function startAudioPlayback(pageText = null) {
         audioReaderStatus.textContent = "This browser does not support spoken audio reading.";
         return;
     }
+    const sessionId = ++speechSessionId;
     window.speechSynthesis.cancel();
+    window.speechSynthesis.resume();
     speechChunks = splitSpeechText(selectedPageText);
     speechChunkIndex = 0;
     if (!speechChunks.length) {
@@ -512,7 +491,33 @@ function startAudioPlayback(pageText = null) {
     }
     setAudioPlaybackControls(true);
     audioReaderStatus.textContent = `Starting page ${currentPdfPageNumber}…`;
-    speakNextChunk();
+    const voices = window.speechSynthesis.getVoices();
+    const voiceIndex = Number(audioVoiceSelect.value);
+    const selectedVoice = audioVoiceSelect.value ? voices[voiceIndex] : null;
+    speechChunks.forEach((chunk, index) => {
+        const utterance = new SpeechSynthesisUtterance(chunk);
+        utterance.rate = Number(audioRate.value) || 1;
+        utterance.lang = selectedVoice?.lang || navigator.language || "en-US";
+        if (selectedVoice) utterance.voice = selectedVoice;
+        utterance.onstart = () => {
+            if (sessionId !== speechSessionId) return;
+            speechChunkIndex = index;
+            audioReaderStatus.textContent = `Reading page ${currentPdfPageNumber}, section ${index + 1} of ${speechChunks.length}.`;
+        };
+        utterance.onend = () => {
+            if (sessionId !== speechSessionId || index !== speechChunks.length - 1) return;
+            audioReaderStatus.textContent = "Finished reading this page.";
+            setAudioPlaybackControls(false);
+        };
+        utterance.onerror = event => {
+            if (sessionId !== speechSessionId || event.error === "canceled" || event.error === "interrupted") return;
+            console.warn("BookNest speech playback failed:", event.error);
+            audioReaderStatus.textContent = "Audio could not start. Tap Listen again and check that your phone has a speech voice enabled.";
+            window.speechSynthesis.cancel();
+            setAudioPlaybackControls(false);
+        };
+        window.speechSynthesis.speak(utterance);
+    });
 }
 
 function startListeningToBook(book) {
@@ -533,9 +538,8 @@ function startListeningToBook(book) {
     }
     const voices = window.speechSynthesis.getVoices();
     audioReaderStatus.textContent = voices.length
-        ? "Choose a voice and press Listen. Offline playback depends on the selected voice being available offline."
-        : "Choose Listen to use the browser’s default voice. Offline playback depends on an installed offline voice.";
-    startAudioPlayback();
+        ? "Choose a voice, then tap Listen. Offline playback depends on the selected voice being available offline."
+        : "Tap Listen to use the phone’s default voice. Offline playback depends on an installed offline voice.";
 }
 
 if (supportsSpeech) {
@@ -547,6 +551,7 @@ if (supportsSpeech) {
     pauseAudioReadingButton.addEventListener("click", () => window.speechSynthesis.pause());
     resumeAudioReadingButton.addEventListener("click", () => window.speechSynthesis.resume());
     stopAudioReadingButton.addEventListener("click", () => {
+        speechSessionId++;
         window.speechSynthesis.cancel();
         speechChunks = [];
         speechChunkIndex = 0;
@@ -629,6 +634,7 @@ document.getElementById("closeOfflineReader").addEventListener("click", async ()
 
 previousPdfPageButton.addEventListener("click", async () => {
     if (!currentPdfDocument || currentPdfPageNumber <= 1) return;
+    speechSessionId++;
     if (supportsSpeech) window.speechSynthesis.cancel();
     setAudioPlaybackControls(false);
     currentPdfPageNumber--;
@@ -638,6 +644,7 @@ previousPdfPageButton.addEventListener("click", async () => {
 
 nextPdfPageButton.addEventListener("click", async () => {
     if (!currentPdfDocument || currentPdfPageNumber >= currentPdfDocument.numPages) return;
+    speechSessionId++;
     if (supportsSpeech) window.speechSynthesis.cancel();
     setAudioPlaybackControls(false);
     currentPdfPageNumber++;
