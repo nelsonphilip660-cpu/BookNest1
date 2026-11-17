@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#17132e">
+    <title>My Downloads | BookNest</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        .downloads-shell { max-width: 760px; margin: 0 auto; }
+        .downloads-status { min-height: 1.5em; margin-top: 14px; color: var(--muted); }
+        .downloads-status.error { color: #b83240; }
+        .downloads-results { display: grid; gap: 14px; margin-top: 22px; }
+        .offline-library { margin-top: 36px; }
+        .offline-library h2 { margin-bottom: 8px; }
+        .offline-book-meta { color: var(--muted); font-size: 14px; margin-top: 5px; }
+        .offline-reader { margin-top: 28px; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--card); }
+        .offline-reader-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 18px; }
+        .offline-reader-head h2 { margin: 0; }
+        .pdf-reader-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 14px 18px; border-bottom: 1px solid var(--border); }
+        .pdf-reader-controls button { cursor: pointer; }
+        .pdf-reader-controls label { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+        .pdf-page-scroll { max-height: 75vh; overflow: auto; padding: 16px; text-align: center; background: #4b4b4b; }
+        #offlineReaderCanvas { display: inline-block; max-width: 100%; height: auto; background: white; box-shadow: 0 4px 18px rgba(0,0,0,.25); }
+        .download-item { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px; padding: 18px; border: 1px solid var(--border); border-radius: 12px; background: var(--card); }
+        .download-item h3 { margin: 0; }
+        .download-item button { cursor: pointer; }
+        .download-item .fallback-link { display: none; }
+        .downloads-account { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; }
+        .downloads-account p { margin: 0; overflow-wrap: anywhere; }
+        .audio-reader { margin: 18px; padding: 18px; border-radius: 12px; background: var(--surface); }
+        .audio-reader h3 { margin: 0 0 8px; }
+        .audio-reader p { color: var(--muted); }
+        .audio-controls { display: flex; flex-wrap: wrap; gap: 10px; margin: 14px 0; }
+        .audio-settings { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; }
+        .audio-settings label { display: grid; gap: 6px; }
+        .audio-settings select { min-width: 220px; padding: 9px; border: 1px solid var(--border); border-radius: 8px; color: var(--text); background: var(--card); }
+        .audio-settings input { accent-color: var(--primary); }
+        .downloads-back { display: inline-block; margin-top: 18px; }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <a href="index.html" class="logo">Book<span>Nest</span><small> YOUR ONLINE BOOKSTORE</small></a>
+        <nav aria-label="Main navigation">
+            <a href="index.html">Home</a>
+            <a href="index.html#books">Books</a>
+        </nav>
+    </header>
+
+    <main id="downloadsApp" class="section" hidden>
+        <div class="downloads-shell">
+            <div class="downloads-account">
+                <p>Signed in as <strong id="downloadsEmail"></strong></p>
+                <button type="button" class="btn secondary" id="downloadsSignOut">Sign out</button>
+            </div>
+            <div class="section-heading">
+                <span class="eyebrow">YOUR DIGITAL LIBRARY</span>
+                <h1>My Downloads</h1>
+                <p>Your saved books appear below. To add an approved purchase, enter its order reference and secure download code. PDFs are kept in BookNest browser storage for offline reading, not in the device Downloads folder. Text-based PDFs can also be read aloud; scanned image-only PDFs may not have readable text. Books saved before audio support was added need to be saved again while online.</p>
+            </div>
+            
+
+            <section class="offline-library" aria-labelledby="offlineLibraryTitle">
+                <h2 id="offlineLibraryTitle">Saved for offline reading</h2>
+                <p id="offlineLibraryMessage" class="downloads-status" aria-live="polite">Loading your saved books…</p>
+                <div id="offlineBooks" class="downloads-results"></div>
+            </section>
+            <form id="downloadForm" class="checkout-form">
+                <label for="downloadOrderId">Order reference</label>
+                <input id="downloadOrderId" type="text" autocomplete="off" required placeholder="Enter your order reference">
+                <label for="downloadToken">Secure download code</label>
+                <input id="downloadToken" type="password" autocomplete="off" required placeholder="Enter your secure download code">
+                <button type="submit" class="btn primary" id="downloadButton">Find my books →</button>
+            </form>
+            <p id="downloadMessage" class="downloads-status" aria-live="polite"></p>
+            <div id="downloadResults" class="downloads-results"></div>
+
+            <section id="offlineReaderPanel" class="offline-reader" hidden aria-label="Offline book reader">
+                <div class="offline-reader-head">
+                    <h2 id="offlineReaderTitle">Book</h2>
+                    <button type="button" id="closeOfflineReader" class="btn secondary">Close</button>
+                </div>
+                <div class="pdf-reader-controls" aria-label="PDF page controls">
+                    <button type="button" class="btn secondary" id="previousPdfPage">Previous</button>
+                    <span>Page <strong id="currentPdfPage">1</strong> of <strong id="totalPdfPages">1</strong></span>
+                    <button type="button" class="btn secondary" id="nextPdfPage">Next</button>
+                    <button type="button" class="btn primary" id="listenToPdfPage">Listen to this page</button>
+                    <label for="pdfZoom">Zoom
+                        <input id="pdfZoom" type="range" min="0.8" max="1.6" step="0.1" value="1">
+                    </label>
+                </div>
+                <div class="pdf-page-scroll">
+                    <p id="pdfReaderMessage" class="downloads-status" role="status"></p>
+                    <canvas id="offlineReaderCanvas" aria-label="PDF page. Select the page to hear it read aloud." title="Select this page to hear it read aloud"></canvas>
+                </div>
+            </section>
+            <section id="audioReaderPanel" class="audio-reader" hidden aria-label="Audio reader assistance">
+                <h3 id="audioReaderTitle">Listen to your book</h3>
+                <p id="audioReaderStatus" role="status">Audio uses a voice available in this browser. Offline playback depends on an installed offline voice.</p>
+                <div class="audio-controls">
+                    <button type="button" class="btn primary" id="startAudioReading">Listen</button>
+                    <button type="button" class="btn secondary" id="pauseAudioReading" disabled>Pause</button>
+                    <button type="button" class="btn secondary" id="resumeAudioReading" disabled>Resume</button>
+                    <button type="button" class="btn secondary" id="stopAudioReading" disabled>Stop</button>
+                </div>
+                <div class="audio-settings">
+                    <label for="audioVoiceSelect">Voice
+                        <select id="audioVoiceSelect"><option value="">Default browser voice</option></select>
+                    </label>
+                    <label for="audioRate">Reading speed: <output id="audioRateValue">1×</output>
+                        <input id="audioRate" type="range" min="0.7" max="1.4" step="0.1" value="1">
+                    </label>
+                </div>
+            </section>
+
+            <a class="downloads-back" href="index.html">← Back to BookNest</a>
+        </div>
+    </main>
+
+    <p id="authStatus" class="downloads-status" role="status">Checking your BookNest sign-in…</p>
+
+    <script src="https://www.gstatic.com/firebasejs/13.3.0/firebase-app-compat.js" crossorigin="anonymous"></script>
+    <script src="https://www.gstatic.com/firebasejs/13.3.0/firebase-auth-compat.js" crossorigin="anonymous"></script>
+    <script src="downloads.js"></script>
+</body>
+</html>
